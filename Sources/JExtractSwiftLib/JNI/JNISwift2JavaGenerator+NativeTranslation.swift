@@ -1794,7 +1794,14 @@ extension JNISwift2JavaGenerator {
             printer.print("environment = try! JavaVirtualMachine.shared().environment()")
             let inner = nativeFunctionSignature.result.conversion.render(&printer, "swiftResult$")
             let result: String
-            if nativeFunctionSignature.result.javaType.requiresBoxing {
+            if let outParameter = nativeFunctionSignature.result.outParameters.first {
+              // Indirect (out-parameter) returns — e.g. generic types bridged via
+              // `_OutSwiftGenericInstance`. The conversion above writes the value
+              // into the out-parameter object as a side effect and renders to an
+              // empty string, so the future must be completed with that
+              // out-parameter object rather than the (empty) inner expression.
+              result = outParameter.name
+            } else if nativeFunctionSignature.result.javaType.requiresBoxing {
               printer.print(
                 "let boxedResult$ = SwiftJavaRuntimeSupport._JNIBoxedConversions.box(\(inner), in: environment)"
               )
