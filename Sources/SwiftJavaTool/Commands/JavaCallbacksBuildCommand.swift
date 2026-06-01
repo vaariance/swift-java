@@ -101,7 +101,7 @@ extension SwiftJava {
       let outputDir = URL(fileURLWithPath: outputDirectory)
       let outputFile = outputDir.appendingPathComponent(singleSwiftFileOutput)
 
-      // 1. Build SwiftKitCore using Gradle if the classpath is not already
+      // 1. Compile SwiftKitCore using Gradle if the classpath is not already
       // present. Multiple callback-enabled modules in the same SwiftPM build
       // share the same SwiftKitCore checkout but use separate plugin output
       // directories, so rebuilding for each module is redundant.
@@ -109,14 +109,14 @@ extension SwiftJava {
         try await runSubprocess(
           executable: gradleExecutable,
           arguments: [
-            ":SwiftKitCore:build",
+            ":SwiftKitCore:classes",
             "--project-dir", gradleProjectDir,
             "--gradle-user-home", gradleUserHome,
             "--configure-on-demand",
             "--no-daemon",
           ],
           environment: .inherit.updating(["GRADLE_USER_HOME": gradleUserHome]),
-          errorMessage: "gradle :SwiftKitCore:build",
+          errorMessage: "gradle :SwiftKitCore:classes",
         )
       }
 
