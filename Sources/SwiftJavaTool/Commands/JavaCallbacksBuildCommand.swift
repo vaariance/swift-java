@@ -101,19 +101,24 @@ extension SwiftJava {
       let outputDir = URL(fileURLWithPath: outputDirectory)
       let outputFile = outputDir.appendingPathComponent(singleSwiftFileOutput)
 
-      // 1. Build SwiftKitCore using Gradle.
-      try await runSubprocess(
-        executable: gradleExecutable,
-        arguments: [
-          ":SwiftKitCore:build",
-          "--project-dir", gradleProjectDir,
-          "--gradle-user-home", gradleUserHome,
-          "--configure-on-demand",
-          "--no-daemon",
-        ],
-        environment: .inherit.updating(["GRADLE_USER_HOME": gradleUserHome]),
-        errorMessage: "gradle :SwiftKitCore:build",
-      )
+      // 1. Build SwiftKitCore using Gradle if the classpath is not already
+      // present. Multiple callback-enabled modules in the same SwiftPM build
+      // share the same SwiftKitCore checkout but use separate plugin output
+      // directories, so rebuilding for each module is redundant.
+      if !FileManager.default.fileExists(atPath: swiftKitCoreClasspath) {
+        try await runSubprocess(
+          executable: gradleExecutable,
+          arguments: [
+            ":SwiftKitCore:build",
+            "--project-dir", gradleProjectDir,
+            "--gradle-user-home", gradleUserHome,
+            "--configure-on-demand",
+            "--no-daemon",
+          ],
+          environment: .inherit.updating(["GRADLE_USER_HOME": gradleUserHome]),
+          errorMessage: "gradle :SwiftKitCore:build",
+        )
+      }
 
       // If the sources list does not exist, jextract produced no Java callbacks.
       // Write an empty placeholder Swift file and return early.
@@ -234,27 +239,51 @@ private func dependencyJavaSourceDirs(
   dependsOn: [String]
 ) -> [String] {
   let pluginRoot = pluginOutputsRoot(forJavaSourcesList: javaSourcesList)
+  let pluginOutputsRoot = pluginRoot.deletingLastPathComponent()
   let fm = FileManager.default
   var seen: Set<String> = []
   var paths: [String] = []
+
+  func appendIfExists(_ candidate: URL) {
+    let path = candidate.path
+    guard fm.fileExists(atPath: path), seen.insert(path).inserted else {
+      return
+    }
+    paths.append(path)
+  }
+
   for arg in dependsOn {
     guard
       let parsed = try? parseDependsOnSyntax(arg),
       let moduleName = parsed.swiftModuleName, !moduleName.isEmpty
     else { continue }
-    let candidate =
+
+    appendIfExists(
       pluginRoot
-      .appendingPathComponent(moduleName)
-      .appendingPathComponent("destination")
-      .appendingPathComponent("JExtractSwiftPlugin")
-      .appendingPathComponent("src")
-      .appendingPathComponent("generated")
-      .appendingPathComponent("java")
-    let path = candidate.path
-    guard fm.fileExists(atPath: path), seen.insert(path).inserted else {
-      continue // already handled this module
+        .appendingPathComponent(moduleName)
+        .appendingPathComponent("destination")
+        .appendingPathComponent("JExtractSwiftPlugin")
+        .appendingPathComponent("src")
+        .appendingPathComponent("generated")
+        .appendingPathComponent("java")
+    )
+
+    if let packageOutputDirs = try? fm.contentsOfDirectory(
+      at: pluginOutputsRoot,
+      includingPropertiesForKeys: nil
+    ) {
+      for packageOutputDir in packageOutputDirs {
+        appendIfExists(
+          packageOutputDir
+            .appendingPathComponent(moduleName)
+            .appendingPathComponent("destination")
+            .appendingPathComponent("JExtractSwiftPlugin")
+            .appendingPathComponent("src")
+            .appendingPathComponent("generated")
+            .appendingPathComponent("java")
+        )
+      }
     }
-    paths.append(path)
   }
   return paths
 }
