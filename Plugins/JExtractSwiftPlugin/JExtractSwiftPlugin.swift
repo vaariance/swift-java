@@ -205,7 +205,24 @@ struct JExtractSwiftBuildToolPlugin: SwiftJavaPluginProtocol, BuildToolPlugin {
     // We need to use a different gradle home, because
     // this plugin might be run from inside another gradle task
     // and that would cause conflicts.
-    let gradleUserHome = context.pluginWorkDirectoryURL.appending(path: "gradle-user-home")
+    //
+    // By default this is an isolated, per-plugin work directory. A package can
+    // opt into a shared, stable home via `gradleUserHome` in its
+    // swift-java.config, so the Gradle distribution + caches are downloaded once
+    // and reused across packages/builds. `~` and relative paths are supported
+    // (relative paths resolve against the target/config directory). Omitting the
+    // field keeps the isolated default (and forces a fresh download).
+    let gradleUserHome: URL
+    if let configuredGradleHome = configuration?.gradleUserHome, !configuredGradleHome.isEmpty {
+      let expanded = (configuredGradleHome as NSString).expandingTildeInPath
+      if expanded.hasPrefix("/") {
+        gradleUserHome = URL(filePath: expanded)
+      } else {
+        gradleUserHome = sourceDir.appending(path: expanded)
+      }
+    } else {
+      gradleUserHome = context.pluginWorkDirectoryURL.appending(path: "gradle-user-home")
+    }
 
     let GradleUserHome = "GRADLE_USER_HOME"
     let gradleUserHomePath = gradleUserHome.path(percentEncoded: false)

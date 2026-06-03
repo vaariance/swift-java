@@ -226,6 +226,21 @@ public struct Configuration: Codable {
 
   public var singleSwiftFileOutput: String?
 
+  /// Overrides the `GRADLE_USER_HOME` used for the Java-callbacks build.
+  ///
+  /// By default the JExtract plugin uses an isolated, per-plugin work directory
+  /// (under `.build/plugins/...`) as the Gradle user home. That keeps nested
+  /// Gradle invocations from conflicting, but it also means the Gradle
+  /// distribution and caches are re-created from scratch for every module, every
+  /// clean, and every CI run.
+  ///
+  /// Set this to a stable, shared path (e.g. `~/.cache/swift-java/gradle`) to
+  /// download the Gradle distribution once and reuse it across all packages and
+  /// builds. `~` and relative paths are supported (relative paths resolve against
+  /// the package directory). Omit the field to keep the isolated default — which
+  /// is also the way to force a fresh download for a specific package.
+  public var gradleUserHome: String? = nil
+
   // ==== dependencies ---------------------------------------------------------
 
   // Java dependencies we need to fetch for this target.
