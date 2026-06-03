@@ -117,10 +117,12 @@ package class JNISwift2JavaGenerator: Swift2JavaGenerator {
     }
 
     if translator.config.enableJavaCallbacks ?? false {
-      // We translate all the protocol wrappers
-      // as we need them to know what protocols we can allow the user to implement themselves
-      // in Java.
-      self.interfaceProtocolWrappers = self.generateInterfaceWrappers(Array(self.analysis.importedTypes.values))
+      // We translate all protocol wrappers we may need in thunks. Imported types cover protocols
+      // declared in this module; referenced protocols cover callback-capable protocols from dependencies.
+      var wrappers = self.generateInterfaceWrappers(Array(self.analysis.importedTypes.values))
+      let referencedProtocolWrappers = self.generateInterfaceWrappers(self.referencedProtocolImportedTypes())
+      wrappers.merge(referencedProtocolWrappers) { current, _ in current }
+      self.interfaceProtocolWrappers = wrappers
     }
   }
 

@@ -43,6 +43,161 @@ extension JNISwift2JavaGenerator {
     return wrappers
   }
 
+  func referencedProtocolImportedTypes() -> [ImportedNominalType] {
+    var importedTypesByName = [String: ImportedNominalType]()
+
+    func hasUnsupportedProtocolRequirements(_ declaration: SwiftNominalTypeDeclaration) -> Bool {
+      guard let protocolDecl = declaration.syntax.as(ProtocolDeclSyntax.self) else {
+        return false
+      }
+
+      return protocolDecl.memberBlock.members.contains { member in
+        member.decl.is(VariableDeclSyntax.self) || member.decl.is(SubscriptDeclSyntax.self)
+      }
+    }
+
+    func populateProtocolRequirements(_ importedType: ImportedNominalType) {
+      guard let protocolDecl = importedType.swiftNominal.syntax.as(ProtocolDeclSyntax.self) else {
+        return
+      }
+
+      for member in protocolDecl.memberBlock.members {
+        guard let functionDecl = member.decl.as(FunctionDeclSyntax.self) else {
+          continue
+        }
+
+        do {
+          let signature = try SwiftFunctionSignature(
+            functionDecl,
+            enclosingType: importedType.swiftType,
+            lookupContext: self.lookupContext
+          )
+          importedType.methods.append(
+            ImportedFunc(
+              module: importedType.swiftNominal.moduleName,
+              swiftDecl: functionDecl,
+              name: functionDecl.name.text.unescapedSwiftName,
+              apiKind: .function,
+              functionSignature: signature
+            )
+          )
+        } catch {
+          self.logger.warning(
+            "Failed to import referenced protocol requirement: '\(importedType.swiftNominal.qualifiedName).\(functionDecl.name.text)'; \(error)"
+          )
+        }
+      }
+    }
+
+    func register(_ protocolType: SwiftNominalType) {
+      let declaration = protocolType.nominalTypeDecl
+      guard declaration.kind == .protocol else {
+        return
+      }
+
+      let key = "\(declaration.moduleName).\(declaration.qualifiedName)"
+      guard importedTypesByName[key] == nil else {
+        return
+      }
+      guard shouldJExtractType(qualifiedName: declaration.qualifiedName, config: self.config) else {
+        return
+      }
+      guard !hasUnsupportedProtocolRequirements(declaration) else {
+        self.logger.warning("Skipping referenced protocol with unsupported requirements: '\(declaration.qualifiedName)'")
+        return
+      }
+
+      do {
+        let importedType = try ImportedNominalType(
+          swiftNominal: declaration,
+          lookupContext: self.lookupContext
+        )
+        populateProtocolRequirements(importedType)
+        importedTypesByName[key] = importedType
+      } catch {
+        self.logger.warning("Failed to import referenced protocol: '\(declaration.qualifiedName)'; \(error)")
+      }
+    }
+
+    func collectProtocols(from type: SwiftType) {
+      switch type {
+      case .nominal(let nominal):
+        register(nominal)
+        for genericArgument in nominal.genericArguments {
+          collectProtocols(from: genericArgument)
+        }
+
+      case .genericParameter:
+        return
+
+      case .function(let functionType):
+        for parameter in functionType.parameters {
+          collectProtocols(from: parameter.type)
+        }
+        collectProtocols(from: functionType.resultType)
+
+      case .metatype(let instanceType),
+        .existential(let instanceType),
+        .opaque(let instanceType):
+        collectProtocols(from: instanceType)
+
+      case .tuple(let elements):
+        for element in elements {
+          collectProtocols(from: element.type)
+        }
+
+      case .composite(let types):
+        for type in types {
+          collectProtocols(from: type)
+        }
+      }
+    }
+
+    func collectProtocols(from function: ImportedFunc) {
+      let signature = function.functionSignature
+
+      for parameter in signature.parameters {
+        if let genericConstraint = parameter.type.typeIn(
+          genericParameters: signature.genericParameters,
+          genericRequirements: signature.genericRequirements
+        ) {
+          collectProtocols(from: genericConstraint)
+        } else {
+          collectProtocols(from: parameter.type)
+        }
+      }
+
+      collectProtocols(from: signature.result.type)
+    }
+
+    for function in self.analysis.importedGlobalFuncs {
+      collectProtocols(from: function)
+    }
+    for variable in self.analysis.importedGlobalVariables {
+      collectProtocols(from: variable)
+    }
+    for type in self.analysis.importedTypes.values {
+      for initializer in type.initializers {
+        collectProtocols(from: initializer)
+      }
+      for method in type.methods {
+        collectProtocols(from: method)
+      }
+      for variable in type.variables {
+        collectProtocols(from: variable)
+      }
+      for enumCase in type.cases {
+        for parameter in enumCase.parameters {
+          collectProtocols(from: parameter.type)
+        }
+      }
+    }
+
+    return importedTypesByName.values.sorted { lhs, rhs in
+      lhs.swiftNominal.qualifiedName < rhs.swiftNominal.qualifiedName
+    }
+  }
+
   /// A type that describes a Swift protocol
   /// that uses an underlying wrap-java `@JavaInterface`
   /// to make callbacks to Java from Swift using protocols.

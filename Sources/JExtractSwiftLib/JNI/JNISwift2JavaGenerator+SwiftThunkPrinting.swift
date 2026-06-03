@@ -63,6 +63,7 @@ extension JNISwift2JavaGenerator {
         logger.trace("Printing swift module class: \(moduleFilename)")
 
         try printGlobalSwiftThunkSources(&printer)
+        try printReferencedProtocolWrapperThunks(&printer)
 
         if let outputFile = try printer.writeContents(
           outputDirectory: self.swiftOutputDirectory,
@@ -174,6 +175,26 @@ extension JNISwift2JavaGenerator {
       encoding: .utf8,
     )
     logger.info("[swift-java] Generated linker export list (\(allSymbols.count) symbols): \(outputPath)")
+  }
+
+  private func printReferencedProtocolWrapperThunks(_ printer: inout CodePrinter) throws {
+    let referencedWrappers = self.interfaceProtocolWrappers.values
+      .filter { wrapper in
+        wrapper.importedType.swiftNominal.moduleName != self.swiftModuleName
+      }
+      .sorted { lhs, rhs in
+        lhs.swiftName < rhs.swiftName
+      }
+
+    guard !referencedWrappers.isEmpty else {
+      return
+    }
+
+    printer.printSeparator("Referenced protocol callback wrappers")
+    for wrapper in referencedWrappers {
+      try printSwiftInterfaceWrapper(&printer, wrapper)
+      printer.println()
+    }
   }
 
   /// Prints the extension needed to make allow upcalls from Swift to Java for protocols
@@ -535,13 +556,17 @@ extension JNISwift2JavaGenerator {
   }
 
   private func asImportedNominalTypeDecl(_ type: SwiftType) -> ImportedNominalType? {
-    self.analysis.importedTypes.first(
-      where: ({ name, nominalType in
+    if let importedType = self.analysis.importedTypes.first(
+      where: ({ _, nominalType in
         nominalType.swiftType == type
       })
-    ).map {
-      $0.value
+    ).map(\.value) {
+      return importedType
     }
+
+    return self.interfaceProtocolWrappers.values.first { wrapper in
+      wrapper.importedType.swiftType == type
+    }?.importedType
   }
 
   private func printFunctionDowncall(
