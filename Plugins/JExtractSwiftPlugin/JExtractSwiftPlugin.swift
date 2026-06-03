@@ -271,6 +271,10 @@ struct JExtractSwiftBuildToolPlugin: SwiftJavaPluginProtocol, BuildToolPlugin {
       "--swift-type-prefix", "Java",
       "--output-directory", outputSwiftDirectory.path(percentEncoded: false),
       "--single-swift-file-output", singleSwiftFileOutputName,
+      // Forward the real source config path so the nested `configure` step loads
+      // the correct initial configuration regardless of the target's on-disk
+      // layout (custom SwiftPM `path:` / package-in-package).
+      "--swift-java-config", configFile.path(percentEncoded: false),
     ]
     javaCallbacksArguments += dependsOnArguments
 

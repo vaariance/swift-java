@@ -93,6 +93,12 @@ extension SwiftJava {
 
     @Option(
       help:
+        "Path to the source module's swift-java.config. Forwarded to the nested `configure` step so it loads the correct initial configuration regardless of the SwiftPM target's on-disk layout (e.g. a custom `path:` / package-in-package). When omitted, `configure` falls back to its `./Sources/<module>` convention."
+    )
+    var swiftJavaConfig: String?
+
+    @Option(
+      help:
         "Dependency module configurations (format: ModuleName=/path/to/swift-java.config)"
     )
     var dependsOn: [String] = []
@@ -173,6 +179,13 @@ extension SwiftJava {
       ]
       if let prefix = swiftTypePrefix {
         configureArgs += ["--swift-type-prefix", prefix]
+      }
+      // Point `configure` at the real source config so it loads the correct
+      // initial configuration (javaPackage, enableJavaCallbacks, ...) instead of
+      // guessing `./Sources/<module>` — which is wrong for targets with a custom
+      // SwiftPM `path:` (e.g. package-in-package layouts).
+      if let swiftJavaConfig {
+        configureArgs += ["--config", swiftJavaConfig]
       }
 
       try await runSubprocess(
