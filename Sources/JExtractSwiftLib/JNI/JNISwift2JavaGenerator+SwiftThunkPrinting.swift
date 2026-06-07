@@ -460,7 +460,7 @@ extension JNISwift2JavaGenerator {
       return
     }
 
-    printSwiftFunctionHelperClasses(&printer, decl)
+    printSwiftFunctionHelperClasses(&printer, decl, methodName: translatedDecl.name)
 
     printCDecl(
       &printer,
@@ -477,6 +477,7 @@ extension JNISwift2JavaGenerator {
   private func printSwiftFunctionHelperClasses(
     _ printer: inout CodePrinter,
     _ decl: ImportedFunc,
+    methodName: String,
   ) {
     let protocolParameters = decl.functionSignature.parameters.compactMap { parameter in
       if let concreteType = parameter.type.typeIn(
@@ -530,7 +531,7 @@ extension JNISwift2JavaGenerator {
         fatalError()
       }
       let swiftClassName = JNISwift2JavaGenerator.protocolParameterWrapperClassName(
-        methodName: decl.name,
+        methodName: methodName,
         parameterName: parameterName,
         parentName: decl.parentType?.asNominalType?.nominalTypeDecl.qualifiedTypeName ?? SwiftQualifiedTypeName(swiftModuleName),
       )
